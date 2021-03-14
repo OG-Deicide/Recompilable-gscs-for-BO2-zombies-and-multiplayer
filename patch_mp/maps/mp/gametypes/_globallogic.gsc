@@ -1,4 +1,3 @@
-#include maps/mp/gametypes/_globallogic;
 #include maps/mp/gametypes/_hostmigration;
 #include maps/mp/gametypes/_dev;
 #include maps/mp/_multi_extracam;
@@ -64,9 +63,13 @@ init() //checked matches bo3 _globallogic.gsc within reason
 	level.wiiu = (GetDvar( "wiiuGame") == "true");
 
 	level.onlineGame = SessionModeIsOnlineGame();
-	level.console = 0;
+	//level.systemlink = sessionmodeissystemlink();
+	level.xenon = level.console;
+	level.ps3 = level.console;
+	level.wiiu = level.console;
 	
-	level.rankedMatch = GameModeIsUsingXP();
+	if(GameModeIsUsingXP())
+	{ if(!isPreGame()) level.rankedmatch = true; }
 	level.leagueMatch = GameModeIsMode( level.GAMEMODE_LEAGUE_MATCH );
 	
 	level.contractsEnabled = !GetGametypeSetting( "disableContracts" );
@@ -75,12 +78,9 @@ init() //checked matches bo3 _globallogic.gsc within reason
 	{
 		level.contractsEnabled = false;
 	}
-		/*
-	/#
-	if ( GetDvarint( "scr_forcerankedmatch" ) == 1 )
-		level.rankedMatch = true;
-	#/
-		*/
+
+	if (level.xenon || level.ps3 || gamemodeisusingxp() && GetDvarint( "scr_forcerankedmatch" ) == 1 ) level.rankedMatch = true;
+	
 	level.script = toLower( GetDvar( "mapname" ) );
 	level.gametype = toLower( GetDvar( "g_gametype" ) );
 
@@ -127,10 +127,12 @@ init() //checked matches bo3 _globallogic.gsc within reason
 	level.displayHalftimeText = false;
 	level.displayRoundEndText = true;
 	
-	level.endGameOnScoreLimit = true;
-	level.endGameOnTimeLimit = true;
-	level.scoreRoundBased = false;
-	level.resetPlayerScoreEveryRound = false;
+    level.clampScoreLimit = true;
+    level.endGameOnScoreLimit = true;
+    level.endGameOnTimeLimit = true;
+    level.scoreRoundWinBased = false;
+    level.resetPlayerScoreEveryRound = false;
+    level.doEndgameScoreboard = true;
 	
 	level.gameForfeited= false;
 	level.forceAutoAssign = false;
@@ -155,6 +157,7 @@ init() //checked matches bo3 _globallogic.gsc within reason
 	level.inOvertime = false;
 	
 	level.defaultOffenseRadius = 560;
+	//level.defaultOffenseRadiusSQ = level.defaultOffenseRadius * level.defaultOffenseRadius;
 
 	level.dropTeam = GetDvarint( "sv_maxclients" );
 	
@@ -168,7 +171,7 @@ init() //checked matches bo3 _globallogic.gsc within reason
 	level.oldschool = ( GetDvarint( "scr_oldschool" ) == 1 );
 	if ( level.oldschool )
 	{
-		logString( "game mode: oldschool" );
+		logstring( "game mode: oldschool" );
 	
 		SetDvar( "jump_height", 64 );
 		SetDvar( "jump_slowdownEnable", 0 );
@@ -180,7 +183,8 @@ init() //checked matches bo3 _globallogic.gsc within reason
 	precacheModel( "tag_origin" );
 	precacheRumble( "dtp_rumble" );
 	precacheRumble( "slide_rumble" );
-	
+	precachestatusicon("hud_status_dead");
+    precachestatusicon("hud_status_connecting");
 	precache_mp_leaderboards();
 	
 	// sets up the flame fx
@@ -194,6 +198,13 @@ init() //checked matches bo3 _globallogic.gsc within reason
 
 	thread maps\mp\_gameadvertisement::init();
 	thread maps\mp\_gamerep::init();
+	level.disableChallenges = false;
+	  
+	if (level.leagueMatch || GetDvarInt("scr_disableChallenges") > 0) level.disableChallenges = true;
+	  
+	level.disableStatTracking = ( GetDvarInt( "scr_disableStatTracking" ) > 0 );
+	  
+	setupcallbacks();
 }
 
 registerDvars() //checked matches bo3 _globallogic.gsc within reason
@@ -228,13 +239,25 @@ registerDvars() //checked matches bo3 _globallogic.gsc within reason
 
 	level.fire_audio_repeat_duration = GetDvarint( "fire_audio_repeat_duration" );
 	level.fire_audio_random_max_duration = GetDvarint( "fire_audio_random_max_duration" );
+	
+	  teamName = getcustomteamname( level.teamIndex[ "allies" ] );
+	  if( isdefined( teamName ) )
+	  SetDvar( "g_customTeamName_Allies", teamName );
+	  else
+	  SetDvar( "g_customTeamName_Allies", "" );
+	  
+	  teamName = getcustomteamname( level.teamIndex[ "axis" ] );
+	  if( isdefined( teamName ) )
+	  SetDvar( "g_customTeamName_Axis", teamName );
+	  else
+	  SetDvar( "g_customTeamName_Axis", "" );
 }
 
 blank( arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 ) //checked matches bo3 _globallogic.gsc within reason
 {
 }
 
-SetupCallbacks() //checked matches bo3 _globallogic.gsc within reason
+/*SetupCallbacks() //checked matches bo3 _globallogic.gsc within reason
 {
 	level.spawnPlayer = maps\mp\gametypes\_globallogic_spawn::spawnPlayer;
 	level.spawnPlayerPrediction = maps\mp\gametypes\_globallogic_spawn::spawnPlayerPrediction;
@@ -292,10 +315,62 @@ SetupCallbacks() //checked matches bo3 _globallogic.gsc within reason
 	level.onMedalAwarded = ::blank;
 
 	maps\mp\gametypes\_globallogic_ui::SetupCallbacks();
+}*/
+setupcallbacks()
+{
+    level.spawnplayer = ::spawnplayer;
+    level.spawnplayerprediction = ::spawnplayerprediction;
+    level.spawnclient = ::spawnclient;
+    level.spawnspectator = ::spawnspectator;
+    level.spawnintermission = ::spawnintermission;
+    level.onplayerscore = ::default_onplayerscore;
+    level.onteamscore = ::default_onteamscore;
+    level.wavespawntimer = ::wavespawntimer;
+    level.spawnmessage = ::default_spawnmessage;
+    level.onspawnplayer = ::blank;
+    level.onspawnplayerunified = ::blank;
+    level.onspawnspectator = ::default_onspawnspectator;
+    level.onspawnintermission = ::default_onspawnintermission;
+    level.onrespawndelay = ::blank;
+    level.onforfeit = ::default_onforfeit;
+    level.ontimelimit = ::default_ontimelimit;
+    level.onscorelimit = ::default_onscorelimit;
+    level.onalivecountchange = ::default_onalivecountchange;
+    level.ondeadevent = undefined;
+    level.ononeleftevent = ::default_ononeleftevent;
+    level.giveteamscore = ::giveteamscore;
+    level.onlastteamaliveevent = ::default_onlastteamaliveevent;
+    level.gettimelimit = ::default_gettimelimit;
+    level.getteamkillpenalty = ::default_getteamkillpenalty;
+    level.getteamkillscore = ::default_getteamkillscore;
+    level.iskillboosting = ::default_iskillboosting;
+    level._setteamscore = ::_setteamscore;
+    level._setplayerscore = ::_setplayerscore;
+    level._getteamscore = ::_getteamscore;
+    level._getplayerscore = ::_getplayerscore;
+    level.onprecachegametype = ::blank;
+    level.onstartgametype = ::blank;
+    level.onplayerconnect = ::blank;
+    level.onplayerdisconnect = ::blank;
+    level.onplayerdamage = ::blank;
+    level.onplayerkilled = ::blank;
+    level.onplayerkilledextraunthreadedcbs = [];
+    level.onteamoutcomenotify = ::teamoutcomenotify;
+    level.onoutcomenotify = ::outcomenotify;
+    level.onteamwageroutcomenotify = ::teamwageroutcomenotify;
+    level.onwageroutcomenotify = ::wageroutcomenotify;
+    level.setmatchscorehudelemforteam = ::setmatchscorehudelemforteam;
+    level.onendgame = ::blank;
+    level.onroundendgame = ::default_onroundendgame;
+    level.onmedalawarded = ::blank;
+    maps/mp/gametypes/_globallogic_ui::setupcallbacks();
 }
-
 precache_mp_leaderboards() //checked matches bo3 _globallogic.gsc within reason
 {
+	if (maps/mp/bots/_bot::is_bot_ranked_match())
+    {
+        return;
+    }
 	if( SessionModeIsZombiesGame() )
 		return;
 
@@ -305,9 +380,23 @@ precache_mp_leaderboards() //checked matches bo3 _globallogic.gsc within reason
 	mapname = GetDvar( "mapname" ); 
 
 	globalLeaderboards = "LB_MP_GB_XPPRESTIGE LB_MP_GB_TOTALXP_AT LB_MP_GB_TOTALXP_LT LB_MP_GB_WINS_AT LB_MP_GB_WINS_LT LB_MP_GB_KILLS_AT LB_MP_GB_KILLS_LT LB_MP_GB_ACCURACY_AT LB_MP_GB_ACCURACY_LT";
+	careerleaderboard = "";
+    switch (level.gametype)
+    {
+        case "gun":
+        case "oic":
+        case "sas":
+        case "shrp":
+            break;
 
+        default:
+            careerleaderboard = " LB_MP_GB_SCOREPERMINUTE";
+            break;
+    }
 	gamemodeLeaderboard = " LB_MP_GM_" + level.gametype;
-				
+	gamemodeleaderboardext = " LB_MP_GM_" + level.gametype + "_EXT";
+    gamemodehcleaderboard = "";
+    gamemodehcleaderboardext = "";			
 	if( getDvarInt( "g_hardcore" ) )
 		gamemodeLeaderboard += "_HC";
 	
@@ -418,13 +507,17 @@ forceEnd(hostsucks) //checked matches bo3 _globallogic.gsc within reason
 		maps\mp\gametypes\_globallogic_utils::logTeamWinString( "host ended game", winner );
 	}
 	else
-	{
-		winner = maps\mp\gametypes\_globallogic_score::getHighestScoringPlayer();
-		if ( isDefined( winner ) )
-			logString( "host ended game, win: " + winner.name );
-		else
-			logString( "host ended game, tie" );
-	}
+    {
+        winner = maps/mp/gametypes/_globallogic_score::gethighestscoringplayer();
+        if (isDefined(winner))
+        {
+            logstring("host ended game, win: " + winner.name);
+        }
+        else
+        {
+            logstring("host ended game, tie");
+        }
+    }
 	
 	level.forcedEnd = true;
 	level.hostForcedEnd = true;
@@ -440,7 +533,6 @@ forceEnd(hostsucks) //checked matches bo3 _globallogic.gsc within reason
 		else
 			endString = &"MP_HOST_ENDED_GAME";
 	}
-	
 	setMatchFlag( "disableIngameMenu", 1 );
 	makeDvarServerInfo( "ui_text_endreason", endString );
 	SetDvar( "ui_text_endreason", endString );
@@ -461,12 +553,16 @@ killserverPc() //checked matches bo3 _globallogic.gsc within reason
 	}
 	else
 	{
-		winner = maps\mp\gametypes\_globallogic_score::getHighestScoringPlayer();
-		if ( isDefined( winner ) )
-			logString( "host ended game, win: " + winner.name );
-		else
-			logString( "host ended game, tie" );
-	}
+        winner = maps/mp/gametypes/_globallogic_score::gethighestscoringplayer();
+        if (isDefined(winner))
+        {
+            logstring("host ended game, win: " + winner.name);
+        }
+        else
+        {
+            logstring("host ended game, tie");
+        }
+    }
 	
 	level.forcedEnd = true;
 	level.hostForcedEnd = true;
@@ -483,51 +579,47 @@ killserverPc() //checked matches bo3 _globallogic.gsc within reason
 	thread endGame( winner, endString );
 }
 
-someoneOnEachTeam() //checked changed to match bo3 _globallogic.gsc
+atleasttwoteams() //checked changed to match bo3 _globallogic.gsc
 {
 	valid_count = 0;
 	
 	foreach ( team in level.teams )
 	{ 
-		if ( level.playerCount[team] != 0 )
-		{
-			valid_count++;
-		}
+		if ( level.playerCount[team] != 0 ) valid_count++;
 	}
-	
-	if ( valid_count < 2 )
-	{
-		return false;
-	}
-	
+	if ( valid_count < 2 ) return false;
 	return true;
 }
-
 checkIfTeamForfeits( team ) //checked matches bo3 _globallogic.gsc within reason
 {
-	if ( !level.everExisted[team] )
+	if (!game["everExisted"][team]) 
 		return false;
 		
-	if ( level.playerCount[team] < 1 && totalPlayerCount() > 0 )
-	{
-		return true;
-	}
-	
+	if ( level.playerCount[team] < 1 && totalPlayerCount() > 0 ) return true;
 	return false;
 }
 
 checkForAnyTeamForfeit() //checked does not match bo3 _globallogic.gsc did not change
 {
+	forfeit_count = 0;
+	valid_team = undefined;
 	foreach( team in level.teams )
 	{
 		if ( checkIfTeamForfeits( team ) )
 		{
-			//allies forfeited
-			thread [[level.onForfeit]]( team );
-			return true;
+			if (!level.multiteam)
+            {
+				thread [[level.onForfeit]]( team );
+				return true;
+			}
 		}
+		else valid_team = team;
 	}
-	
+	if (level.multiteam && forfeit_count == level.teams.size - 1)
+    {
+        thread [[level.onforfeit]](valid_team);
+        return true;
+    }
 	return false;
 }
 
@@ -552,30 +644,48 @@ areAllTeamsDead( ) //checked matches bo3 _globallogic.gsc within reason
 	foreach( team in level.teams )
 	{
 		// if team was alive and now they are not
-		if ( !isTeamAllDead( team ) )
-		{	
-			return false;
-		}
+		if (!isTeamAllDead(team)) return false;
 	}
-	
 	return true;
 }
 
 allDeadTeamCount( ) //checked does not exist in bo3 _globallogic.gsc leaving in
 {
 	count = 0;
-	foreach( team in level.teams )
+	foreach(team in level.teams)
 	{
 		// if team was alive and now they are not
-		if ( isTeamAllDead( team ) )
-		{	
-			count++;
-		}
+		if (isTeamAllDead(team)) count++;
 	}
-	
 	return count;
 }
-
+getTeamScoreRatio()
+{
+	playerTeam = self.pers["team"];
+  
+  score = getTeamScore( playerTeam );
+  
+  otherTeamScore = 0;
+  
+  foreach ( team in level.teams )
+  {
+  	if ( team == playerTeam )
+  	continue;
+  	otherTeamScore += getTeamScore( team );
+  }
+  
+  if ( level.teams.size > 1 )
+  {
+  otherTeamScore = otherTeamScore / ( level.teams.size - 1 );
+  }
+  
+  if ( otherTeamScore != 0 )
+  return ( float( score ) / float( otherTeamScore ) );
+  
+  // should we just return the flat score here or some other indication of win?
+  return score;
+ }
+  
 doDeadEventUpdates() //checked changed to match bo3 _globallogic.gsc
 {
 	if ( level.teamBased )
@@ -620,7 +730,26 @@ doDeadEventUpdates() //checked changed to match bo3 _globallogic.gsc
 	
 	return false;
 }
-
+getLastTeamAlive()
+{
+	count = 0;
+    everExistedCount = 0;
+    aliveTeam = undefined;
+	foreach(team in level.teams)
+  	{
+  		if (level.everExisted[team])
+  		{
+  			if (!isteamalldead(team))
+  			{
+  				aliveTeam = team;
+  				count++;
+  			}
+  			everExistedCount++;
+  		}
+   }
+   if (everExistedCount > 1 && count == 1) return aliveTeam;
+   return undefined;
+}
 isOnlyOneLeftAliveOnTeam( team ) //checked matches bo3 _globallogic.gsc within reason
 {
 	return level.lastAliveCount[team] > 1 && level.aliveCount[team] == 1 && level.playerLives[team] == 1 ; 
@@ -664,20 +793,17 @@ updateGameEvents() //checked matches bo3 _globallogic.gsc within reason
 	}
 #/
 	*/
-	if ( level.rankedMatch && !level.inGracePeriod || level.wagerMatch && !level.inGracePeriod || level.leagueMatch && !level.inGracePeriod )
+	if (level.rankedmatch || level.wagermatch || level.leaguematch && !(level.ingraceperiod))
 	{
 		if ( level.teamBased )
 		{
 			if (!level.gameForfeited )
 			{
-				if( game["state"] == "playing" && checkForAnyTeamForfeit() )
-				{
-					return;
-				}
+				if(game["state"] == "playing" && checkForAnyTeamForfeit()) return;
 			}
 			else // level.gameForfeited==true
 			{
-				if ( someoneOnEachTeam() )
+				if ( atleasttwoteams() )
 				{
 					level.gameForfeited = false;
 					level notify( "abort forfeit" );
@@ -711,7 +837,7 @@ updateGameEvents() //checked matches bo3 _globallogic.gsc within reason
 	if ( level.inGracePeriod )
 		return;
 
-	if ( level.playerQueuedRespawn )
+	while ( level.playerQueuedRespawn )
 	{
 		doSpawnQueueUpdates();
 	}
@@ -749,7 +875,7 @@ matchStartTimer() //checked does not match bo3 _globallogic.gsc did not change
 	//Since the scaling is disabled, we cant see the pulse effect by scaling. We need to change keep switching between 
 	//some small and big font to get the pulse effect. This will be fixed when we have fixed set of different sizes fonts.
 	
-	//matchStartTimer maps\mp\gametypes\_hud::fontPulseInit();
+	matchStartTimer maps\mp\gametypes\_hud::fontPulseInit();
 
 	countTime = int( level.prematchPeriod );
 	
@@ -758,28 +884,25 @@ matchStartTimer() //checked does not match bo3 _globallogic.gsc did not change
 		while ( countTime > 0 && !level.gameEnded )
 		{
 			matchStartTimer setValue( countTime );
-			//matchStartTimer thread maps\mp\gametypes\_hud::fontPulse( level );
+			matchStartTimer thread maps\mp\gametypes\_hud::fontPulse( level );
 			if ( countTime == 2 )
 				visionSetNaked( GetDvar( "mapname" ), 3.0 );
 			countTime--;
-			wait ( 1.0 );
+			foreach(player in level.players)
+				player playlocalsound("uin_start_count_down");
+				
+			wait 1;
 		}
 	}
-	else
-	{
-		visionSetNaked( GetDvar( "mapname" ), 1.0 );
-	}
-
+	else visionSetNaked( GetDvar( "mapname" ), 1.0 );
 	matchStartTimer destroyElem();
 	matchStartText destroyElem();
 }
 
 matchStartTimerSkip() //checked does not match bo3 _globallogic.gsc did not change
 {
-	if ( !isPregame() )
-		visionSetNaked( GetDvar( "mapname" ), 0 );
-	else
-		visionSetNaked( "mpIntro", 0 );
+	if (!isPregame()) visionSetNaked( GetDvar( "mapname" ), 0 );
+	else visionSetNaked( "mpIntro", 0 );
 }
 
 notifyTeamWaveSpawn( team, time ) //checked matches bo3 _globallogic.gsc within reason
@@ -799,15 +922,48 @@ waveSpawnTimer() //checked matches bo3 _globallogic.gsc within reason
 	while ( game["state"] == "playing" )
 	{
 		time = getTime();
-		
-		foreach( team in level.teams )
-		{
-			notifyTeamWaveSpawn( team, time );
-		}
-		wait ( 0.05 );
+		foreach( team in level.teams ) notifyTeamWaveSpawn( team, time );
+		wait 0.05;
 	}
 }
-
+gamehistoryplayerkicked()
+{
+    teamscoreratio = self getteamscoreratio();
+    scoreboardposition = getplacementforplayer(self);
+    if (scoreboardposition < 0) scoreboardposition = level.players.size;
+    self gamehistoryfinishmatch(2, self.kills, self.deaths, self.score, scoreboardposition, teamscoreratio);
+    if (isDefined(self.pers["matchesPlayedStatsTracked"]))
+    {
+        gamemode = getcurrentgamemode();
+        self incrementmatchcompletionstat(gamemode, "played", "kicked");
+        self.pers["matchesPlayedStatsTracked"] = undefined;
+    }
+    uploadstats(self);
+    wait 1;
+}
+gamehistoryplayerquit()
+{
+    teamscoreratio = self getteamscoreratio();
+    scoreboardposition = getplacementforplayer(self);
+    if (scoreboardposition < 0)
+    {
+        scoreboardposition = level.players.size;
+    }
+    self gamehistoryfinishmatch(3, self.kills, self.deaths, self.score, scoreboardposition, teamscoreratio);
+    if (isDefined(self.pers["matchesPlayedStatsTracked"]))
+    {
+        gamemode = getcurrentgamemode();
+        self incrementmatchcompletionstat(gamemode, "played", "quit");
+        if (isDefined(self.pers["matchesHostedStatsTracked"]))
+        {
+            self incrementmatchcompletionstat(gamemode, "hosted", "quit");
+            self.pers["matchesHostedStatsTracked"] = undefined;
+        }
+        self.pers["matchesPlayedStatsTracked"] = undefined;
+    }
+    uploadstats(self);
+    if (!self ishost()) wait 1;
+}
 
 hostIdledOut() //checked matches bo3 _globallogic.gsc within reason
 {
@@ -851,30 +1007,13 @@ sendAfterActionReport() //checked matches bo3 _globallogic.gsc within reason
 		return;
 #/
 	*/
-	if ( !level.onlineGame )
-	{
-		return;
-	}
-
-	if( isPregame() )
-		return;
-
-	if ( SessionModeIsZombiesGame() )
-	{
-		return;
-	}
-		
+	if ( !level.onlineGame || isPregame() || SessionModeIsZombiesGame()) return;
 	//Send After Action Report information to the client
-	index = 0;
-	while ( index < level.players.size )
-	{
+  	for ( index = 0; index < level.players.size; index++ )
+  	{
 		player = level.players[index];
 
-		if ( player is_bot() )
-		{
-			index++;
-			continue;
-		}
+		if (player is_bot()) continue;
 		
 		//Find the Nemesis for each player
 		nemesis = player.pers["nemesis_name"];
@@ -906,28 +1045,26 @@ sendAfterActionReport() //checked matches bo3 _globallogic.gsc within reason
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "deaths", player.deaths );
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "headshots", player.headshots );
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "score", player.score );
-		currGameType = maps\mp\gametypes\_persistence::getGameTypeName();
-//		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "gameType", getGameTypeEnumFromName( currGameType, level.wagerMatch ) );
-		
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "xpEarned", int( player.pers["summary"]["xp"] ) );
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "cpEarned", int( player.pers["summary"]["codpoints"] ) );
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "miscBonus", int( player.pers["summary"]["challenge"] + player.pers["summary"]["misc"] ) );
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "matchBonus", int( player.pers["summary"]["match"] ) );
 		player maps\mp\gametypes\_persistence::setAfterActionReportStat( "demoFileID", getDemoFileID() );
+		player maps/mp/gametypes/_persistence::setafteractionreportstat("leagueTeamID", player getleagueteamid());
 	
-		player maps\mp\gametypes\_persistence::setMatchHistoryStat( "kills", player.kills );
-		player maps\mp\gametypes\_persistence::setMatchHistoryStat( "deaths", player.deaths );
-		player maps\mp\gametypes\_persistence::setMatchHistoryStat( "score", player.score );
-
+		teamscoreratio = player getteamscoreratio();
+        scoreboardposition = getplacementforplayer(player);
+        if (scoreboardposition < 0)
+        {
+            scoreboardposition = level.players.size;
+        }
+		player gamehistoryfinishmatch(4, player.kills, player.deaths, player.score, scoreboardposition, teamscoreratio);
 		recordPlayerStats( player, "total_xp", player.pers["summary"]["xp"] );
+		placement = level.placement["all"];
 		
-		placement = level.placement["all"];			
 		for ( otherPlayerIndex = 0; otherPlayerIndex < placement.size; otherPlayerIndex++ )
 		{
-			if ( level.placement["all"][otherPlayerIndex] == player )
-			{
-				recordPlayerStats( player, "position", otherPlayerIndex );				
-			}				
+			while ( level.placement["all"][otherPlayerIndex] == player ) recordPlayerStats( player, "position", otherPlayerIndex );							
 		}
 		
 		if ( level.wagerMatch )
@@ -967,36 +1104,30 @@ sendAfterActionReport() //checked matches bo3 _globallogic.gsc within reason
 		
 		recordPlayerMatchEnd( player );
 		RecordPlayerStats(player, "presentAtEnd", 1 );
-		index++;
 	}
 }
 
 displayRoundEnd( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within reason
 {
-	if ( level.displayRoundEndText )
+	while ( level.displayRoundEndText)
 	{
-		if ( winner == "tie" )
+		while(level.teambased)
 		{
-			maps\mp\_demo::gameResultBookmark( "round_result", level.teamIndex[ "neutral" ], level.teamIndex[ "neutral" ] );
-		}
-		else
-		{
-			maps\mp\_demo::gameResultBookmark( "round_result", level.teamIndex[ winner ], level.teamIndex[ "neutral" ] );
+			if ( winner == "tie" ) maps\mp\_demo::gameResultBookmark( "round_result", level.teamIndex[ "neutral" ], level.teamIndex[ "neutral" ] );
+			else maps\mp\_demo::gameResultBookmark( "round_result", level.teamIndex[ winner ], level.teamIndex[ "neutral" ] );
 		}
 
 		setmatchflag( "cg_drawSpectatorMessages", 0 );
 		players = level.players;
-		index = 0;
-		while ( index < players.size )
+		for ( index = 0; index < players.size; index++ )
 		{
 			player = players[index];
-			
+			if (!waslastround()) player notify("round_ended");
 			if ( !isDefined( player.pers["team"] ) )
 			{
 				player [[level.spawnIntermission]]( true );
 				player closeMenu();
 				player closeInGameMenu();
-				index++;
 				continue;
 			}
 			
@@ -1023,10 +1154,8 @@ displayRoundEnd( winner, endReasonText ) //checked matches bo3 _globallogic.gsc 
 	
      		player setClientUIVisibilityFlag( "hud_visible", 0 );
 			player setClientUIVisibilityFlag( "g_compassShowEnemies", 0 );
-			index++;
 		}
 	}
-
 	if ( wasLastRound() )
 	{
 		roundEndWait( level.roundEndDelay, false );
@@ -1041,12 +1170,10 @@ displayRoundEnd( winner, endReasonText ) //checked matches bo3 _globallogic.gsc 
 displayRoundSwitch( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within reason
 {
 	switchType = level.halftimeType;
+	foreach(player in level.players) player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "ROUND_SWITCH" );
 	if ( switchType == "halftime" )
 	{
-		if ( IsDefined( level.nextRoundIsOvertime ) && level.nextRoundIsOvertime )
-		{
-			switchType = "overtime";
-		}
+		if ( IsDefined( level.nextRoundIsOvertime ) && level.nextRoundIsOvertime ) switchType = "overtime";
 		else
 		{
 			if ( level.roundLimit )
@@ -1063,43 +1190,34 @@ displayRoundSwitch( winner, endReasonText ) //checked matches bo3 _globallogic.g
 				else
 					switchType = "intermission";
 			}
-			else
-			{
-				switchType = "intermission";
-			}
+			else switchType = "intermission";
 		}
 	}
 	
 	leaderdialog = maps\mp\gametypes\_globallogic_audio::getRoundSwitchDialog( switchType );
-	
 	SetMatchTalkFlag( "EveryoneHearsEveryone", 1 );
-
-	players = level.players;
-	index = 0;
-	while ( index < players.size )
+    players = level.players;
+	for ( index = 0; index < players.size; index++ )
 	{
-		player = players[index];
+	    player = players[index];
 		
 		if ( !isDefined( player.pers["team"] ) )
 		{
 			player [[level.spawnIntermission]]( true );
 			player closeMenu();
 			player closeInGameMenu();
-			index++;
 			continue;
 		}
-		
-		player maps\mp\gametypes\_globallogic_audio::leaderDialogOnPlayer( leaderdialog );
-		player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "ROUND_SWITCH" );
-		
-		if ( level.wagerMatch )
-			player thread [[level.onTeamWagerOutcomeNotify]]( switchType, true, level.halftimeSubCaption );
-		else
-			player thread [[level.onTeamOutcomeNotify]]( switchType, false, level.halftimeSubCaption );
-        player setClientUIVisibilityFlag( "hud_visible", 0 );
-        index++;
+			player maps\mp\gametypes\_globallogic_audio::leaderDialogOnPlayer( leaderdialog );
+			player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "ROUND_SWITCH" );
+			
+			if ( level.wagerMatch )
+				player thread [[level.onTeamWagerOutcomeNotify]]( switchType, true, level.halftimeSubCaption );
+			else
+				player thread [[level.onTeamOutcomeNotify]]( switchType, false, level.halftimeSubCaption );
+				
+	        player setClientUIVisibilityFlag( "hud_visible", 0 );
 	}
-
 	roundEndWait( level.halftimeRoundEndDelay, false );
 }
 
@@ -1108,33 +1226,24 @@ displayGameEnd( winner, endReasonText ) //checked matches bo3 _globallogic.gsc w
 	SetMatchTalkFlag( "EveryoneHearsEveryone", 1 );
 	setmatchflag( "cg_drawSpectatorMessages", 0 );
 
-	if ( level.teambased )
+	while ( level.teambased )
 	{
-		if ( winner == "tie" )
-		{
-			maps\mp\_demo::gameResultBookmark( "game_result", level.teamIndex[ "neutral" ], level.teamIndex[ "neutral" ] );
-		}
-		else
-		{ 
-			maps\mp\_demo::gameResultBookmark( "game_result", level.teamIndex[ winner ], level.teamIndex[ "neutral" ] );
-		}
+		if ( winner == "tie" ) maps\mp\_demo::gameResultBookmark( "game_result", level.teamIndex[ "neutral" ], level.teamIndex[ "neutral" ] );
+		else maps\mp\_demo::gameResultBookmark( "game_result", level.teamIndex[ winner ], level.teamIndex[ "neutral" ] );
 	}
 	// catching gametype, since DM forceEnd sends winner as player entity, instead of string
-	players = level.players;
-	index = 0;
-	while ( index < players.size )
-	{
-		player = players[index];
+	  players = level.players;
+	  for ( index = 0; index < players.size; index++ )
+	  {
+	  	player = players[index];
 	
 		if ( !isDefined( player.pers["team"] ) )
 		{
 			player [[level.spawnIntermission]]( true );
 			player closeMenu();
 			player closeInGameMenu();
-			index++;
 			continue;
 		}
-		
 		if ( level.wagerMatch )
 		{
 			if ( level.teamBased )
@@ -1144,14 +1253,10 @@ displayGameEnd( winner, endReasonText ) //checked matches bo3 _globallogic.gsc w
 		}
 		else
 		{
-			if ( level.teamBased )
-			{
-				player thread [[level.onTeamOutcomeNotify]]( winner, false, endReasonText );
-			}
-			else
+			if ( level.teamBased ) player thread [[level.onTeamOutcomeNotify]]( winner, false, endReasonText );
+			else 
 			{
 				player thread [[level.onOutcomeNotify]]( winner, false, endReasonText );
-				
 				if ( isDefined( winner ) && player == winner )
 				{
 					music = game["music"]["victory_" + player.team];
@@ -1163,13 +1268,10 @@ displayGameEnd( winner, endReasonText ) //checked matches bo3 _globallogic.gsc w
 				}
 			}
 		}
-		
     	player setClientUIVisibilityFlag( "hud_visible", 0 );
 		player setClientUIVisibilityFlag( "g_compassShowEnemies", 0 );
-		index++;
-	}
 	
-	if ( level.teamBased )
+	while ( level.teamBased )
 	{
 		thread maps\mp\gametypes\_globallogic_audio::announceGameWinner( winner, level.postRoundTime / 2 );
 
@@ -1185,49 +1287,46 @@ displayGameEnd( winner, endReasonText ) //checked matches bo3 _globallogic.gsc w
 				{
 					player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "DRAW" );
 				}						
-				else if ( winner == team )
-				{	
-					music = game["music"]["victory_" + player.team];
-					player maps\mp\gametypes\_globallogic_audio::set_music_on_player( music );			
-				}
 				else
 				{
-					player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "LOSE" );	
-				}	
+					if ( winner == team )
+					{	
+						music = game["music"]["victory_" + player.team];
+						player maps\mp\gametypes\_globallogic_audio::set_music_on_player( music );			
+					}
+					else
+					{
+						player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "LOSE" );	
+					}
+				}
 			}
 			else
 			{
-				if ( winner == "tie" )
+				if ( winner == "tie" ) player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "DRAW" );			
+				else 
 				{
-					player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "DRAW" );
-				}				
-				else if ( winner == team )
-				{
-					music = game["music"]["victory_" + player.team];
-					player maps\mp\gametypes\_globallogic_audio::set_music_on_player( music );
-				}
-				else
-				{
-					player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "LOSE" );	
+					if ( winner == team )
+					{
+						music = game["music"]["victory_" + player.team];
+						player maps\mp\gametypes\_globallogic_audio::set_music_on_player( music );
+					}
+					else
+					{
+						player maps\mp\gametypes\_globallogic_audio::set_music_on_player( "LOSE" );	
+					}
 				}
 			}
 		}
 	}
-	
+	}
 	bbPrint( "session_epilogs", "reason %s", endReasonText );
-
-	// tagTMR<NOTE>: all round data aggregates that cannot be summed from other tables post-runtime
 	bbPrint( "mpmatchfacts", "gametime %d winner %s killstreakcount %d", gettime(), winner, level.killstreak_counter );
-	
 	roundEndWait( level.postRoundTime, true );
 }
 
 getEndReasonText() //checked matches bo3 _globallogic.gsc within reason
 {
-	if ( IsDefined( level.endReasonText ) )
-	{
-		return level.endReasonText;
-	}
+	while (IsDefined(level.endReasonText)) return level.endReasonText;
 	
 	if ( hitRoundLimit() || hitRoundWinLimit() )
 		return  game["strings"]["round_limit_reached"];
@@ -1264,7 +1363,7 @@ startNextRound( winner,	endReasonText ) //checked matches bo3 _globallogic.gsc w
 		
 		if ( !wasLastRound() )
 		{
-			if ( checkRoundSwitch() )
+			while ( checkRoundSwitch() )
 			{
 				displayRoundSwitch( winner, endReasonText );
 			}
@@ -1391,8 +1490,7 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 	//up above the wait.
 	//wait 0.05;
 	
-	if ( !level.wagerMatch )
-		setMatchFlag( "enable_popups", 0 );
+	if ( !level.wagerMatch ) setMatchFlag( "enable_popups", 0 );
 	if ( !isdefined( level.disableOutroVisionSet ) || level.disableOutroVisionSet == false ) 
 	{
 		if ( SessionModeIsZombiesGame() && level.forcedEnd )
@@ -1417,6 +1515,7 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 	level.allowBattleChatter = false;
 	maps\mp\gametypes\_globallogic_audio::flushDialog();
 
+	foreach ( team in level.teams ) game["lastroundscore"][team] = getteamscore(team);
 	if ( !IsDefined( game["overtime_round"] ) || wasLastRound() ) // Want to treat all overtime rounds as a single round
 	{
 		game["roundsplayed"]++;
@@ -1429,35 +1528,22 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 		}
 	}
 
-	if ( isdefined( winner ) && level.teambased && isdefined( level.teams[winner] ) )
-	{
-		level.finalKillCam_winner = winner;
-	}
-	else
-	{
-		level.finalKillCam_winner = "none";
-	}
+	if ( isdefined( winner ) && level.teambased && isdefined( level.teams[winner] ) ) level.finalKillCam_winner = winner;
+	else level.finalKillCam_winner = "none";
 	
 	setGameEndTime( 0 ); // stop/hide the timers
-	
 	updatePlacement();
-
 	updateRankedMatch( winner );
-	
-	// freeze players
 	players = level.players;
-	
 	newTime = getTime();
 	gameLength = getGameLength();
-	
 	SetMatchTalkFlag( "EveryoneHearsEveryone", 1 );
-
 	bbGameOver = 0;
 	if ( isOneRound() || wasLastRound() )
 	{
 		bbGameOver = 1;
-
-		if ( level.teambased )
+	}
+	/*	if ( level.teambased )
 		{
 			if ( winner == "tie" )
 			{
@@ -1479,14 +1565,12 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 				recordGameResult( winner.team );
 			}
 		}
-	}
-	index = 0;
-	while ( index < players.size )
-	{
-		player = players[index];
+	}*/
+	  for ( index = 0; index < players.size; index++ )
+	  {
+	  	player = players[index];
 		player maps\mp\gametypes\_globallogic_player::freezePlayerForRoundEnd();
-		player thread roundEndDoF( 4.0 );
-
+		player thread roundEndDoF( 4 );
 		player maps\mp\gametypes\_globallogic_ui::freeGameplayHudElems();
 		
 		// Update weapon usage stats
@@ -1494,18 +1578,22 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 		
 		player bbPlayerMatchEnd( gameLength, endReasonText, bbGameOver );
 
-		if( isPregame() )
-			index++;
-			continue;
+		if(isPregame()) continue;
 
-		if( level.rankedMatch || level.wagerMatch || level.leagueMatch && !player IsSplitscreen() )
+		while( level.rankedMatch || level.wagerMatch || level.leagueMatch && !player IsSplitscreen() )
 		{
-			if ( isDefined( player.setPromotion ) )
-				player setDStat( "AfterActionReportStats", "lobbyPopup", "promotion" );
-			else
-				player setDStat( "AfterActionReportStats", "lobbyPopup", "summary" );
+			 if (level.leaguematch)
+             {
+                 player setdstat("AfterActionReportStats", "lobbyPopup", "leaguesummary");
+             }
+             else
+             {
+				if ( isDefined( player.setPromotion ) )
+					player setDStat( "AfterActionReportStats", "lobbyPopup", "promotion" );
+				else
+					player setDStat( "AfterActionReportStats", "lobbyPopup", "summary" );
+			 }
 		}
-		index++;
 	}
 
 	maps\mp\_music::setmusicstate( "SILENT" );
@@ -1518,7 +1606,7 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 
 	maps\mp\_gamerep::gameRepUpdateInformationForRound();
 	maps\mp\gametypes\_wager::finalizeWagerRound();
-	maps\mp\gametypes\_gametype_variants::onRoundEnd();
+	//maps\mp\gametypes\_gametype_variants::onRoundEnd(); --BO3 ONLY?
 	thread maps\mp\_challenges::roundEnd( winner );
 
 	if ( startNextRound( winner, endReasonText ) )
@@ -1530,30 +1618,38 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 	// After this the match is really ending //
 	///////////////////////////////////////////
 
-	if ( !isOneRound() )
+	if ( !isOneRound() && !level.gameforfeited)
 	{
 		if ( isDefined( level.onRoundEndGame ) )
 			winner = [[level.onRoundEndGame]]( winner );
 
 		endReasonText = getEndReasonText();
 	}
-	
+	while (!(level.wagermatch) && !(sessionmodeiszombiesgame()))
+  		maps/mp/gametypes/_globallogic_score::updatewinlossstats(winner);
+    if (level.teambased)
+    {
+        if (winner == "tie") recordgameresult("draw");
+        else recordgameresult(winner);
+    }
+    else
+    {
+        if (!isDefined(winner)) recordgameresult("draw");
+        else recordgameresult(winner.team);
+    }
 	skillUpdate( winner, level.teamBased );
 	recordLeagueWinner( winner );
-	
 	setTopPlayerStats();
 	thread maps\mp\_challenges::gameEnd( winner );
 
 	if ( IsDefined( winner ) && !isDefined( level.skipGameEnd ) || !level.skipGameEnd )
-		displayGameEnd( winner, endReasonText );
-	
-	if ( isOneRound() )
 	{
-		maps\mp\gametypes\_globallogic_utils::executePostRoundEvents();
-	}
-		
+		if (isDefined(level.preendgamefunction)) thread [[level.preendgamefunction]](level.postroundtime);
+        displaygameend(winner, endreasontext);
+    }
+	
+	if (isOneRound()) maps\mp\gametypes\_globallogic_utils::executePostRoundEvents();
 	level.intermission = true;
-
 	maps\mp\_gamerep::gameRepAnalyzeAndReport();
 	
 	if( !isPregame() )
@@ -1576,15 +1672,14 @@ endGame( winner, endReasonText ) //checked matches bo3 _globallogic.gsc within r
 		player thread [[level.spawnIntermission]]();
         player setClientUIVisibilityFlag( "hud_visible", 1 );
 	}
-	//Eckert - Fading out sound
+	if (isDefined(level.endgamefunction)) level thread [[level.endgamefunction]]();
 	level notify ( "sfade");
-	logString( "game ended" );
+	logstring( "game ended" );
 	
 	if ( !isDefined( level.skipGameEnd ) || !level.skipGameEnd )
-		wait 5.0;
+		wait 5;
 	
 	exitLevel( false );
-
 }
 
 bbPlayerMatchEnd( gameLength, endReasonString, gameOver ) // self == player //checked does not exist in bo3 _globallogic.gsc leaving in
@@ -1600,71 +1695,51 @@ bbPlayerMatchEnd( gameLength, endReasonString, gameOver ) // self == player //ch
 			totalTimePlayed = gameLength;
 		}
 	}
-
 	xuid = self GetXUID();
-
-	bbPrint( "mpplayermatchfacts", "score %d momentum %d endreason %s sessionrank %d playtime %d xuid %s gameover %d team %s",
-		self.pers["score"],
-		self.pers["momentum"],
-		endReasonString,
-		playerRank,
-		totalTimePlayed,
-		xuid,
-		gameOver,
-		self.pers["team"] );
+	bbprint("mpplayermatchfacts", "score %d momentum %d endreason %s sessionrank %d playtime %d xuid %s gameover %d team %s", self.pers["score"], self.pers["momentum"], endreasonstring, playerrank, totaltimeplayed, xuid, gameover, self.pers["team"]);
 }
 
 roundEndWait( defaultDelay, matchBonus ) //checked matches bo3 _globallogic.gsc within reason
 {
-	notifiesDone = false;
-	while ( !notifiesDone )
-	{
-		players = level.players;
-		notifiesDone = true;
-		index = 0;
-		while ( index < players.size )
-		{
-			if ( !isDefined( players[index].doingNotify ) || !players[index].doingNotify )
-				index++;
-				continue;
-				
-			notifiesDone = false;
-			index++;
-		}
-		wait ( 0.5 );
-	}
-
-	if ( !matchBonus )
-	{
-		wait ( defaultDelay );
-		level notify ( "round_end_done" );
-		return;
-	}
+  notifiesDone = false;
+  if ( !notifiesDone )
+  {
+	  players = level.players;
+	  notifiesDone = true;
+	  for ( index = 0; index < players.size; index++ )
+	  {
+		  if ( !isdefined( players[index].doingNotify ) || !players[index].doingNotify )
+		  	continue;
+	 	  notifiesDone = false;
+	  }
+	  wait 0.5;
+  }
+  if ( !matchBonus )
+  {
+     wait defaultDelay;
+     level notify ( "round_end_done" );
+	 return;
+  }
 
   wait ( defaultDelay / 2 );
-	level notify ( "give_match_bonus" );
-	wait ( defaultDelay / 2 );
+  level notify ( "give_match_bonus" );
+  wait ( defaultDelay / 2 );
 
-	notifiesDone = false;
-	while ( !notifiesDone )
-	{
-		players = level.players;
-		notifiesDone = true;
-		index = 0;
-		while ( index < players.size )
-		{
-			if ( !isDefined( players[index].doingNotify ) || !players[index].doingNotify )
-				index++;
-				continue;
-				
-			notifiesDone = false;
-			index++;
-		}
-		wait ( 0.5 );
-	}
-	
-	level notify ( "round_end_done" );
-}
+  notifiesDone = false;
+  if ( !notifiesDone )
+  {
+  	players = level.players;
+  	notifiesDone = true;
+  	for ( index = 0; index < players.size; index++ )
+  	{
+  		if ( !isdefined( players[index].doingNotify ) || !players[index].doingNotify )
+  			continue;
+  		notifiesDone = false;
+  	}
+  	wait 0.5;
+  }
+  level notify ( "round_end_done" );
+ }
 
 
 roundEndDOF( time ) //checked matches bo3 _globallogic.gsc within reason
@@ -1723,7 +1798,6 @@ allTeamsUnderScoreLimit() //checked does not exist in bo3 _globallogic.gsc leavi
 		if ( game["teamScores"][team] >= level.scoreLimit )
 			return false;
 	}
-	
 	return true;
 }
 
@@ -1835,39 +1909,60 @@ removeDisconnectedPlayerFromPlacement() //checked matches bo3 _globallogic.gsc w
 	
 }
 
-updatePlacement() //checked matches bo3 _globallogic.gsc within reason
+updateplacement()
 {
-	
-	if ( !level.players.size )
-		return;
-
-	level.placement["all"] = [];
-	for ( index = 0; index < level.players.size; index++ )
-	{
-		if ( isdefined( level.teams[ level.players[index].team ] ) )
-			level.placement["all"][level.placement["all"].size] = level.players[index];
-	}
-		
-	placementAll = level.placement["all"];
-	
-	for ( i = 1; i < placementAll.size; i++ )
-	{
-		player = placementAll[ i ];
-		playerScore = player.score;
-		for ( j = i - 1; j >= 0 && playerScore > placementAll[j].score || playerScore == placementAll[j].score && player.deaths < placementAll[j].deaths; j-- )
-			placementAll[ j + 1 ] = placementAll[ j ];
-		placementAll[ j + 1 ] = player;
-	}
-	
-	level.placement["all"] = placementAll;
-		/*
-	/#
-	maps\mp\gametypes\_globallogic_utils::assertProperPlacement();
-	#/
-		*/
-	updateTeamPlacement();
-
-}	
+    if (!level.players.size)
+    {
+        return;
+    }
+    level.placement["all"] = [];
+    index = 0;
+    while (index < level.players.size)
+    {
+        if (isDefined(level.teams[level.players[index].team]))
+        {
+            level.placement["all"][level.placement["all"].size] = level.players[index];
+        }
+        index++;
+    }
+    placementall = level.placement["all"];
+    if (level.teambased)
+    {
+        i = 1;
+        while (i < placementall.size)
+        {
+            player = placementall[i];
+            playerscore = player.score;
+            j = i - 1;
+            while (j >= 0 && playerscore > placementall[j].score || playerscore == placementall[j].score && player.deaths < placementall[j].deaths)
+            {
+                placementall[j + 1] = placementall[j];
+                j--;
+            }
+            placementall[j + 1] = player;
+            i++;
+        }
+    }
+    else
+    {
+        i = 1;
+        while (i < placementall.size)
+        {
+            player = placementall[i];
+            playerscore = player.pointstowin;
+            j = i - 1;
+            while (j >= 0 && playerscore > placementall[j].pointstowin || playerscore == placementall[j].pointstowin && player.deaths < placementall[j].deaths)
+            {
+                placementall[j + 1] = placementall[j];
+                j--;
+            }
+            placementall[j + 1] = player;
+            i++;
+        }
+    }
+    level.placement["all"] = placementall;
+    updateteamplacement();
+}
 
 
 updateTeamPlacement() //checked matches bo3 _globallogic.gsc within reason
@@ -1941,7 +2036,7 @@ sortDeadPlayers( team ) //checked matches bo3 _globallogic.gsc within reason
 	}
 }
 
-totalAliveCount() //checked matches bo3 _globallogic.gsc within reason
+totalAliveCount()
 {
 	count = 0;
 	foreach( team in level.teams )
@@ -2021,20 +2116,19 @@ updateTeamStatus() //checked matches bo3 _globallogic.gsc within reason
 		resetTeamVariables( team );
 	}
 	
-	level.activePlayers = [];
+	  level.activePlayers = [];
 
-	players = level.players;
-	i = 0;
-	while ( i < players.size )
-	{
-		player = players[i];
-		
-		if ( !isDefined( player ) && level.splitscreen )
-			i++;
-			continue;
+	  players = level.players;
+	  for ( i = 0; i < players.size; i++ )
+	  {
+	  player = players[i];
+	  
+	  if ( !isdefined( player ) && level.splitscreen )
+	  continue;
 
-		team = player.team;
-		class = player.class;
+	    if ( level.teambased || player.team == "spectator" ) team = player.team;
+		else team = "free";
+	    class = player.class;
 		
 		if ( team != "spectator" && isDefined( class ) && class != "" )
 		{
@@ -2066,7 +2160,6 @@ updateTeamStatus() //checked matches bo3 _globallogic.gsc within reason
 					level.playerLives[team]++;
 			}
 		}
-		i++;
 	}
 	
 	totalAlive = totalAliveCount();
@@ -2076,61 +2169,44 @@ updateTeamStatus() //checked matches bo3 _globallogic.gsc within reason
 	
 	foreach( team in level.teams )
 	{
-		if ( level.aliveCount[team] )
-			level.everExisted[team] = true;
-	
+		if (level.aliveCount[team])
+		{
+			game["everExisted"][team] = true;
+ 		 	level.everExisted[team] = true;
+ 		}
 		sortDeadPlayers( team );
 	}
-
 	level updateGameEvents();
 }
 
 checkTeamScoreLimitSoon( team ) //checked matches bo3 _globallogic.gsc within reason
 {
-	assert( IsDefined( team ) );
+	//assert( IsDefined( team ) );
 	
-	if ( level.scoreLimit <= 0 )
-		return;
+	if ( level.scoreLimit <= 0 ) return;
 		
-	if ( !level.teamBased )
-		return;
+	if ( !level.teamBased ) return;
 		
 	// Give the data a minute to converge/settle
-	if ( maps\mp\gametypes\_globallogic_utils::getTimePassed() < ( 60 * 1000 ) )
-		return;
+	if ( maps\mp\gametypes\_globallogic_utils::getTimePassed() < ( 60 * 1000 ) ) return;
 	
 	timeLeft = maps\mp\gametypes\_globallogic_utils::getEstimatedTimeUntilScoreLimit( team );
 	
 	if ( timeLeft < 1 )
 	{
 		level notify( "match_ending_soon", "score" );
-		maps\mp\_gameadvertisement::teamScoreLimitSoon( true );
+		//maps\mp\_gameadvertisement::teamScoreLimitSoon( true ); //--NOT IN BO3?
 	}
 }
 
-checkPlayerScoreLimitSoon() //checked matches bo3 _globallogic.gsc within reason
+checkplayerscorelimitsoon()
 {
-	assert( IsPlayer( self ) );
-	
-	if ( level.scoreLimit <= 0 )
-		return;
-	
-	if ( level.teamBased )
-		return;
-		
-	// Give the data a minute to converge/settle
-	if ( maps\mp\gametypes\_globallogic_utils::getTimePassed() < ( 60 * 1000 ) )
-		return;
-		
-	timeLeft = maps\mp\gametypes\_globallogic_utils::getEstimatedTimeUntilScoreLimit( undefined );
-	
-	if ( timeLeft < 1 )
-	{
-		level notify( "match_ending_soon", "score" );
-		maps\mp\_gameadvertisement::teamScoreLimitSoon( true );
-	}
+    if (level.scorelimit <= 0) return;
+    if (level.teambased) return;
+    if (maps/mp/gametypes/_globallogic_utils::gettimepassed() < 60000) return;
+    timeleft = maps/mp/gametypes/_globallogic_utils::getestimatedtimeuntilscorelimit(undefined);
+    if (timeleft < 1) level notify("match_ending_soon", "score");
 }
-
 timeLimitClock() //checked matches bo3 _globallogic.gsc within reason
 {
 	level endon ( "game_ended" );
@@ -2173,16 +2249,14 @@ timeLimitClock() //checked matches bo3 _globallogic.gsc within reason
 				// don't play a tick at exactly 0 seconds, that's when something should be happening!
 				if ( timeLeftInt == 0 )
 					break;
-				
-				clockObject playSound( "mpl_ui_timer_countdown" );
+				else clockObject playSound( "mpl_ui_timer_countdown" );
 			}
 			
 			// synchronize to be exactly on the second
 			if ( timeLeft - floor(timeLeft) >= .05 )
 				wait timeLeft - floor(timeLeft);
 		}
-
-		wait ( 1.0 );
+		wait 1;
 	}
 }
 
@@ -2192,7 +2266,7 @@ timeLimitClock_Intermission( waitTime ) //checked matches bo3 _globallogic.gsc w
 	clockObject = spawn( "script_origin", (0,0,0) );
 	
 	if ( waitTime >= 10.0 )
-		wait ( waitTime - 10.0 );
+		wait waitTime - 10.0 ;
 		
 	for ( ;; )
 	{
@@ -2204,47 +2278,37 @@ timeLimitClock_Intermission( waitTime ) //checked matches bo3 _globallogic.gsc w
 
 startGame() //checked does not match bo3 _globallogic.gsc did not change
 {
-	thread maps\mp\gametypes\_globallogic_utils::gameTimer();
-	level.timerStopped = false;
-	// RF, disabled this, as it is not required anymore.
-	//thread maps\mp\gametypes\_spawnlogic::spawnPerFrameUpdate();
-
-	SetMatchTalkFlag( "DeadChatWithDead", level.voip.deadChatWithDead );
-	SetMatchTalkFlag( "DeadChatWithTeam", level.voip.deadChatWithTeam );
-	SetMatchTalkFlag( "DeadHearTeamLiving", level.voip.deadHearTeamLiving );
-	SetMatchTalkFlag( "DeadHearAllLiving", level.voip.deadHearAllLiving );
-	SetMatchTalkFlag( "EveryoneHearsEveryone", level.voip.everyoneHearsEveryone );
-	SetMatchTalkFlag( "DeadHearKiller", level.voip.deadHearKiller );
-	SetMatchTalkFlag( "KillersHearVictim", level.voip.killersHearVictim );
-	
-
-	prematchPeriod();
-	level notify("prematch_over");
-
-	thread timeLimitClock();
-	thread gracePeriod();
-	thread watchMatchEndingSoon();
-
-	thread maps\mp\gametypes\_globallogic_audio::musicController();
-
-	thread maps\mp\gametypes\_gametype_variants::onRoundBegin();
-
-	recordMatchBegin();
-}
+    thread maps/mp/gametypes/_globallogic_utils::gametimer();
+    level.timerstopped = 0;
+    setmatchtalkflag("DeadChatWithDead", level.voip.deadchatwithdead);
+    setmatchtalkflag("DeadChatWithTeam", level.voip.deadchatwithteam);
+    setmatchtalkflag("DeadHearTeamLiving", level.voip.deadhearteamliving);
+    setmatchtalkflag("DeadHearAllLiving", level.voip.deadhearallliving);
+    setmatchtalkflag("EveryoneHearsEveryone", level.voip.everyonehearseveryone);
+    setmatchtalkflag("DeadHearKiller", level.voip.deadhearkiller);
+    setmatchtalkflag("KillersHearVictim", level.voip.killershearvictim);
+    prematchperiod();
+    level notify("prematch_over");
+    thread timelimitclock();
+    thread graceperiod();
+    thread watchmatchendingsoon();
+    thread maps/mp/gametypes/_globallogic_audio::musiccontroller();
+    recordmatchbegin();
+ }
 
 
 waitForPlayers() //checked does not match bo3 _globallogic.gsc did not change
 {
 	while ( GetNumConnectedPlayers() < 1 )
 	{
-		wait ( 0.05 );
+		wait 0.05;
+		while (getTime() - starttime > 120000) exitlevel(0);
 	}
 }	
 
 prematchPeriod() //checked matches bo3 _globallogic.gsc within reason
 {
 	setMatchFlag( "hud_hardcore", level.hardcoreMode );
-
 	level endon( "game_ended" );
 	
 	if ( level.prematchPeriod > 0 )
@@ -2253,12 +2317,11 @@ prematchPeriod() //checked matches bo3 _globallogic.gsc within reason
 
 		waitForPlayers();
 
-		wait ( level.prematchPeriod );
+		wait level.prematchPeriod;
 	}
 	else
 	{
 		matchStartTimerSkip();
-		
 		wait 0.05;
 	}
 	
@@ -2290,7 +2353,7 @@ gracePeriod() //checked matches bo3 _globallogic.gsc within reason
 	}
 	
 	level notify ( "grace_period_ending" );
-	wait ( 0.05 );
+	wait 0.05;
 	
 	level.inGracePeriod = false;
 	
@@ -2305,12 +2368,10 @@ gracePeriod() //checked matches bo3 _globallogic.gsc within reason
 		for ( i = 0; i < players.size; i++ )
 		{
 			player = players[i];
-			
 			if ( !player.hasSpawned && player.sessionteam != "spectator" && !isAlive( player ) )
 				player.statusicon = "hud_status_dead";
 		}
 	}
-	
 	level thread updateTeamStatus();
 }
 
@@ -2376,7 +2437,7 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 			game["defenders"] = "axis";
 
 		// if this hits the teams are not setup right
-		assert( game["attackers"] != game["defenders"] );
+		//assert( game["attackers"] != game["defenders"] );
 		
 		// TODO MTEAM - need to update this valid team
 		foreach( team in level.teams )
@@ -2387,9 +2448,6 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 
 		if ( !isDefined( game["state"] ) )
 			game["state"] = "playing";
-	
-		precacheStatusIcon( "hud_status_dead" );
-		precacheStatusIcon( "hud_status_connecting" );
 		
 		precacheRumble( "damage_heavy" );
 		precacheRumble( "damage_light" );
@@ -2456,16 +2514,15 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 		if ( GetDvarint( "xblive_clanmatch" ) != 0 )
 		{
 			// TODO MTEAM is this code used anymore?
-			foreach( team in level.teams )
-			{
-				game["icons"][team] = "composite_emblem_team_axis";
-			}
-			
+			foreach( team in level.teams ) game["icons"][team] = "composite_emblem_team_axis";
 			game["icons"]["allies"] = "composite_emblem_team_allies";
 			game["icons"]["axis"] = "composite_emblem_team_axis";
 		}
 	}
-
+	else
+    {
+        if (!level.splitscreen) level.prematchperiod = getgametypesetting("preroundperiod");
+    }
 	if(!isdefined(game["timepassed"]))
 		game["timepassed"] = 0;
 
@@ -2473,23 +2530,14 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 		game["roundsplayed"] = 0;
 	SetRoundsPlayed( game["roundsplayed"] );
 	
-	if ( IsDefined( game["overtime_round"] ) )
-	{
-		SetMatchFlag( "overtime", 1 );
-	}
-	else
-	{
-		SetMatchFlag( "overtime", 0 );
-	}
+	if ( IsDefined( game["overtime_round"] ) ) SetMatchFlag( "overtime", 1 );
+	else SetMatchFlag( "overtime", 0 );
 	
-	if(!isdefined(game["roundwinner"] ))
-		game["roundwinner"] = [];
+	if(!isdefined(game["roundwinner"] )) game["roundwinner"] = [];
 
-	if(!isdefined(game["roundswon"] ))
-		game["roundswon"] = [];
+	if(!isdefined(game["roundswon"])) game["roundswon"] = [];
 
-	if(!isdefined(game["roundswon"]["tie"] ))
-		game["roundswon"]["tie"] = 0;
+	if(!isdefined(game["roundswon"]["tie"] )) game["roundswon"]["tie"] = 0;
 
 	foreach ( team in level.teams )
 	{
@@ -2511,11 +2559,10 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 	level.hardcoreMode = GetGametypeSetting( "hardcoreMode" );
 	if ( level.hardcoreMode )
 	{
-		logString( "game mode: hardcore" );
+		logstring( "game mode: hardcore" );
 		
 		//set up friendly fire delay for hardcore
-		if( !isDefined(level.friendlyFireDelayTime) )
-			level.friendlyFireDelayTime = 0;
+		if( !isDefined(level.friendlyFireDelayTime)) level.friendlyFireDelayTime = 0;
 	}
 
 	if ( GetDvar( "scr_max_rank" ) == "" )
@@ -2531,48 +2578,45 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 	// this gets set to false when someone takes damage or a gametype-specific event happens.
 	level.useStartSpawns = true;
 
-	level.roundScoreCarry = GetGametypeSetting( "roundscorecarry" );
-
-	level.allowHitMarkers = GetGametypeSetting( "allowhitmarkers" );
-	level.playerQueuedRespawn = GetGametypeSetting( "playerQueuedRespawn" );
-	level.playerForceRespawn = GetGametypeSetting( "playerForceRespawn" );
-
-	level.perksEnabled = GetGametypeSetting( "perksEnabled" );
-	level.disableAttachments = GetGametypeSetting( "disableAttachments" );
-	level.disableTacInsert = GetGametypeSetting( "disableTacInsert" );
-	level.disableCAC = GetGametypeSetting( "disableCAC" );
-	level.disableWeaponDrop = GetGametypeSetting( "disableweapondrop" );
-	level.onlyHeadShots = GetGametypeSetting( "onlyHeadshots" );
-	
-	// set to 0 to disable
-	level.minimumAllowedTeamKills = GetGametypeSetting( "teamKillPunishCount" ) - 1; // punishment starts at the next one
-	level.teamKillReducedPenalty = GetGametypeSetting( "teamKillReducedPenalty" );
-	level.teamKillPointLoss = GetGametypeSetting( "teamKillPointLoss" );
-	level.teamKillSpawnDelay = GetGametypeSetting( "teamKillSpawnDelay" );
-	
-	level.deathPointLoss = GetGametypeSetting( "deathPointLoss" );
-	level.leaderBonus = GetGametypeSetting( "leaderBonus" );
-	level.forceRadar = GetGametypeSetting( "forceRadar" );
-	level.playerSprintTime = GetGametypeSetting( "playerSprintTime" );
-	level.bulletDamageScalar = GetGametypeSetting( "bulletDamageScalar" );
-	
-	level.playerMaxHealth = GetGametypeSetting( "playerMaxHealth" );
-	level.playerHealthRegenTime = GetGametypeSetting( "playerHealthRegenTime" );
-	
-	level.playerRespawnDelay = GetGametypeSetting( "playerRespawnDelay" );
-	level.playerObjectiveHeldRespawnDelay = GetGametypeSetting( "playerObjectiveHeldRespawnDelay" );
-	level.waveRespawnDelay = GetGametypeSetting( "waveRespawnDelay" );
-	
-	level.spectateType = GetGametypeSetting( "spectateType" );
-	
-	level.voip = SpawnStruct();
-	level.voip.deadChatWithDead = GetGametypeSetting( "voipDeadChatWithDead" );
-	level.voip.deadChatWithTeam = GetGametypeSetting( "voipDeadChatWithTeam" );
-	level.voip.deadHearAllLiving = GetGametypeSetting( "voipDeadHearAllLiving" );
-	level.voip.deadHearTeamLiving = GetGametypeSetting( "voipDeadHearTeamLiving" );
-	level.voip.everyoneHearsEveryone = GetGametypeSetting( "voipEveryoneHearsEveryone" );
-	level.voip.deadHearKiller = GetGametypeSetting( "voipDeadHearKiller" );
-	level.voip.killersHearVictim = GetGametypeSetting( "voipKillersHearVictim" );
+    level.roundscorecarry = getgametypesetting("roundscorecarry");
+    level.allowhitmarkers = getgametypesetting("allowhitmarkers");
+    level.playerqueuedrespawn = getgametypesetting("playerQueuedRespawn");
+    level.playerforcerespawn = getgametypesetting("playerForceRespawn");
+    level.roundstartexplosivedelay = getgametypesetting("roundStartExplosiveDelay");
+    level.roundstartkillstreakdelay = getgametypesetting("roundStartKillstreakDelay");
+    level.perksenabled = getgametypesetting("perksEnabled");
+    level.disableattachments = getgametypesetting("disableAttachments");
+    level.disabletacinsert = getgametypesetting("disableTacInsert");
+    level.disablecac = getgametypesetting("disableCAC");
+    level.disableclassselection = getgametypesetting("disableClassSelection");
+    level.disableweapondrop = getgametypesetting("disableweapondrop");
+    level.onlyheadshots = getgametypesetting("onlyHeadshots");
+    level.minimumallowedteamkills = getgametypesetting("teamKillPunishCount") - 1;
+    level.teamkillreducedpenalty = getgametypesetting("teamKillReducedPenalty");
+    level.teamkillpointloss = getgametypesetting("teamKillPointLoss");
+    level.teamkillspawndelay = getgametypesetting("teamKillSpawnDelay");
+    level.deathpointloss = getgametypesetting("deathPointLoss");
+    level.leaderbonus = getgametypesetting("leaderBonus");
+    level.forceradar = getgametypesetting("forceRadar");
+    level.playersprinttime = getgametypesetting("playerSprintTime");
+    level.bulletdamagescalar = getgametypesetting("bulletDamageScalar");
+    level.playermaxhealth = getgametypesetting("playerMaxHealth");
+    level.playerhealthregentime = getgametypesetting("playerHealthRegenTime");
+    level.playerrespawndelay = getgametypesetting("playerRespawnDelay");
+    level.playerobjectiveheldrespawndelay = getgametypesetting("playerObjectiveHeldRespawnDelay");
+    level.waverespawndelay = getgametypesetting("waveRespawnDelay");
+    level.suicidespawndelay = getgametypesetting("spawnsuicidepenalty");
+    level.teamkilledspawndelay = getgametypesetting("spawnteamkilledpenalty");
+    level.maxsuicidesbeforekick = getgametypesetting("maxsuicidesbeforekick");
+    level.spectatetype = getgametypesetting("spectateType");
+    level.voip = spawnstruct();
+    level.voip.deadchatwithdead = getgametypesetting("voipDeadChatWithDead");
+    level.voip.deadchatwithteam = getgametypesetting("voipDeadChatWithTeam");
+    level.voip.deadhearallliving = getgametypesetting("voipDeadHearAllLiving");
+    level.voip.deadhearteamliving = getgametypesetting("voipDeadHearTeamLiving");
+    level.voip.everyonehearseveryone = getgametypesetting("voipEveryoneHearsEveryone");
+    level.voip.deadhearkiller = getgametypesetting("voipDeadHearKiller");
+    level.voip.killershearvictim = getgametypesetting("voipKillersHearVictim");
 
 	if( GetDvar( "r_reflectionProbeGenerate" ) == "1" )
 		level waittill( "eternity" );
@@ -2587,59 +2631,52 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 		level.maxRecentStats = 10;
 		level.maxHitLocations = 19;
 		level.globalShotsFired = 0;
-	//	thread maps\mp\gametypes\_class::init();
+		//thread maps\mp\gametypes\_class::init();
 
 
-	//	thread maps\mp\gametypes\_menus::init();
-		thread maps\mp\gametypes\_hud::init();
-		thread maps\mp\gametypes\_serversettings::init();
-		thread maps\mp\gametypes\_clientids::init();
-	//	thread maps\mp\teams\_teams::init();
-		thread maps\mp\gametypes\_weaponobjects::init();
-		thread maps\mp\gametypes\_scoreboard::init();
-		thread maps\mp\gametypes\_killcam::init();
-		thread maps\mp\gametypes\_shellshock::init();
-		thread maps\mp\gametypes\_deathicons::init();
-	//	thread maps\mp\gametypes\_damagefeedback::init();
-		thread maps\mp\gametypes\_spectating::init();
-		thread maps\mp\gametypes\_objpoints::init();
-		thread maps\mp\gametypes\_gameobjects::init();
-		thread maps\mp\gametypes\_spawnlogic::init();
-	//	thread maps\mp\gametypes\_battlechatter_mp::init();
-	// FIX ME 		thread maps\mp\killstreaks\_killstreaks::init();
-		thread maps\mp\gametypes\_globallogic_audio::init();
-		thread maps\mp\gametypes\_wager::init();
-		thread maps\mp\gametypes\_gametype_variants::init();
-		thread maps\mp\bots\_bot::init();
-		thread maps\mp\_decoy::init();
+        thread maps/mp/gametypes/_hud::init();
+        thread maps/mp/gametypes/_serversettings::init();
+        thread maps/mp/gametypes/_clientids::init();
+        thread maps/mp/gametypes/_weaponobjects::init();
+        thread maps/mp/gametypes/_scoreboard::init();
+        thread maps/mp/gametypes/_killcam::init();
+        thread maps/mp/gametypes/_shellshock::init();
+        thread maps/mp/gametypes/_deathicons::init();
+        thread maps/mp/gametypes/_spectating::init();
+        thread maps/mp/gametypes/_objpoints::init();
+        thread maps/mp/gametypes/_gameobjects::init();
+        thread maps/mp/gametypes/_spawnlogic::init();
+        thread maps/mp/gametypes/_globallogic_audio::init();
+        thread maps/mp/gametypes/_wager::init();
+        thread maps/mp/bots/_bot::init();
+        thread maps/mp/_decoy::init();
 	}
 	else
 	{
-		thread maps\mp\gametypes\_persistence::init();
-		thread maps\mp\gametypes\_menus::init();
-		thread maps\mp\gametypes\_hud::init();
-		thread maps\mp\gametypes\_serversettings::init();
-		thread maps\mp\gametypes\_clientids::init();
-		thread maps\mp\teams\_teams::init();
-		thread maps\mp\gametypes\_weapons::init();
-		thread maps\mp\gametypes\_scoreboard::init();
-		thread maps\mp\gametypes\_killcam::init();
-		thread maps\mp\gametypes\_shellshock::init();
-		thread maps\mp\gametypes\_deathicons::init();
-		thread maps\mp\gametypes\_damagefeedback::init();
-		thread maps\mp\gametypes\_healthoverlay::init();
-		thread maps\mp\gametypes\_spectating::init();
-		thread maps\mp\gametypes\_objpoints::init();
-		thread maps\mp\gametypes\_gameobjects::init();
-		thread maps\mp\gametypes\_spawnlogic::init();
-		thread maps\mp\gametypes\_battlechatter_mp::init();
-		thread maps\mp\killstreaks\_killstreaks::init();
-		thread maps\mp\gametypes\_globallogic_audio::init();
-		thread maps\mp\gametypes\_wager::init();
-		thread maps\mp\gametypes\_gametype_variants::init();
-		thread maps\mp\bots\_bot::init();
-		thread maps\mp\_decoy::init();
-		thread maps\mp\_bb::init();
+        thread maps/mp/gametypes/_persistence::init();
+        thread maps/mp/gametypes/_menus::init();
+        thread maps/mp/gametypes/_hud::init();
+        thread maps/mp/gametypes/_serversettings::init();
+        thread maps/mp/gametypes/_clientids::init();
+        thread maps/mp/teams/_teams::init();
+        thread maps/mp/gametypes/_weapons::init();
+        thread maps/mp/gametypes/_scoreboard::init();
+        thread maps/mp/gametypes/_killcam::init();
+        thread maps/mp/gametypes/_shellshock::init();
+        thread maps/mp/gametypes/_deathicons::init();
+        thread maps/mp/gametypes/_damagefeedback::init();
+        thread maps/mp/gametypes/_healthoverlay::init();
+        thread maps/mp/gametypes/_spectating::init();
+        thread maps/mp/gametypes/_objpoints::init();
+        thread maps/mp/gametypes/_gameobjects::init();
+        thread maps/mp/gametypes/_spawnlogic::init();
+        thread maps/mp/gametypes/_battlechatter_mp::init();
+        thread maps/mp/killstreaks/_killstreaks::init();
+        thread maps/mp/gametypes/_globallogic_audio::init();
+        thread maps/mp/gametypes/_wager::init();
+        thread maps/mp/bots/_bot::init();
+        thread maps/mp/_decoy::init();
+        thread maps/mp/_bb::init();
 	}
 
 	if ( level.teamBased )
@@ -2676,9 +2713,8 @@ Callback_StartGameType() //checked does not match bo3 _globallogic.gsc did not c
 		registerRoundWinLimit( 0, 10 );
 	
 	// The order the following functions are registered in are the order they will get called
-	maps\mp\gametypes\_globallogic_utils::registerPostRoundEvent( maps\mp\gametypes\_killcam::postRoundFinalKillcam );	
-	maps\mp\gametypes\_globallogic_utils::registerPostRoundEvent( maps\mp\gametypes\_wager::postRoundSideBet );
-
+	maps/mp/gametypes/_globallogic_utils::registerpostroundevent(::postroundfinalkillcam);
+    maps/mp/gametypes/_globallogic_utils::registerpostroundevent(::postroundsidebet);
 	makeDvarServerInfo( "ui_scorelimit" );
 	makeDvarServerInfo( "ui_timelimit" );
 	makeDvarServerInfo( "ui_allow_classchange", GetDvar( "ui_allow_classchange" ) );
@@ -2813,7 +2849,7 @@ checkRoundSwitch() //checked matches bo3 _globallogic.gsc within reason
 	if ( !isdefined( level.onRoundSwitch ) )
 		return false;
 	
-	assert( game["roundsplayed"] > 0 );
+	//assert( game["roundsplayed"] > 0 );
 	
 	if ( game["roundsplayed"] % level.roundswitch == 0 )
 	{
@@ -2844,8 +2880,7 @@ getKillStreaks( player ) //checked matches bo3 _globallogic.gsc within reason
 		killstreak[ killstreakNum ] = "killstreak_null";
 	}
 	
-	if ( isPlayer( player ) && !level.oldschool && level.disableCAC != 1 &&
-	!isdefined( player.pers["isBot"] ) && isdefined( player.killstreak ) )
+	if ( isPlayer( player ) && !level.oldschool && level.disableCAC != 1 && !isdefined( player.pers["isBot"] ) && isdefined( player.killstreak ) )
 	{
 		currentKillstreak = 0;
 		for ( killstreakNum = 0; killstreakNum < level.maxKillstreaks; killstreakNum++ )
@@ -2868,7 +2903,7 @@ updateRankedMatch(winner) //checked matches bo3 _globallogic.gsc within reason
 		if ( hostIdledOut() )
 		{
 			level.hostForcedEnd = true;
-			logString( "host idled out" );
+			logstring( "host idled out" );
 			endLobby();
 		}
 	}
@@ -2878,6 +2913,3 @@ updateRankedMatch(winner) //checked matches bo3 _globallogic.gsc within reason
 		maps\mp\gametypes\_globallogic_score::updateWinLossStats( winner );
 	}
 }
-
-
-
